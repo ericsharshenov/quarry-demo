@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Карьер — живой прототип</title>
+    <link rel="stylesheet" href="./src/index.css" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      const ORDER = {
+        number: "Н-10482",
+        fraction: "5–20 мм",
+        quantityT: 20,
+        plate: "А123ВС 116",
+        customer: "ООО «СтройТранс»",
+        driver: "Иванов С. П.",
+      };
+      const STATUS_LABEL = {
+        idle: "нет наряда",
+        waiting: "ожидает",
+        on_scales_in: "на весах",
+        loading: "погрузка",
+        on_scales_out: "выезд",
+        closed: "закрыт",
+      };
+
+      const initial = {
+        status: "idle",
+        plateRecognized: null,
+        trafficLight: "red",
+        tareKg: null,
+        grossKg: null,
+        dock: null,
+        driverNotified: false,
+        loaderConfirmed: false,
+        salesNotified: false,
+        log: [],
+      };
+
+      let logSeq = 1;
+      let state = { ...initial, log: [] };
+
+      function nowTime() {
+        return new Date().toLocaleTimeString("ru-RU", {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        });
+      }
+      function pushLog(next, text) {
+        return {
+          ...next,
+          log: [{ id: logSeq++, time: nowTime(), text }, ...next.log].slice(0, 12),
+        };
+      }
+      function kg(n) {
+        return n == null ? "—" : n.toLocaleString("ru-RU") + " кг";
+      }
+      function dispatch(type) {
+        const s = state;
+        if (type === "RESET") {
+          state = { ...initial, log: [] };
+          render();
+          return;
+        }
+        if (type === "CRM_SEND" && s.status === "idle") {
+          state = pushLog({ ...s, status: "waiting" }, "CRM: отдел продаж отправил наряд Н-10482 (5–20 мм, 20 т, А123ВС 116)");
+        } else if (type === "ANPR_IN" && s.status === "waiting") {
+          state = pushLog(
+            { ...s, status: "on_scales_in", plateRecognized: ORDER.plate, trafficLight: "green" },
+            "ANPR: номер А123ВС 116 распознан, наряд найден, светофор зелёный",
+          );
+        } else if (type === "WEIGH_TARE" && s.status === "on_scales_in") {
+          state = pushLog(
+            { ...s, tareKg: 14280, trafficLight: "red" },
+            "Весы: тара 14 280 кг. Водитель остаётся в кабине",
+          );
+        } else if (type === "NOTIFY_DRIVER" && s.status === "on_scales_in" && s.tareKg != null) {
+          state = pushLog(
+            { ...s, status: "loading", dock: 2, driverNotified: true },
+            "Водителю: пост погрузки 2. Погрузчику: очередь А123ВС 116, 20 т фракции 5–20",
+          );
+        } else if (type === "CONFIRM_LOAD" && s.status === "loading" && !s.loaderConfirmed) {
+          state = pushLog(
+            { ...s, loaderConfirmed: true, status: "on_scales_out" },
+            "Погрузчик: загрузка подтверждена. Машина возвращается на весы",
+          );
+        } else if (type === "ANPR_OUT" && s.status === "on_scales_out" && s.loaderConfirmed) {
+          const gross = 34110;
+          const netT = ((gross - (s.tareKg || 0)) / 1000).toFixed(2);
+          state = pushLog(
+            {
+              ...s,
+              status: "closed",
+              plateRecognized: ORDER.plate,
+              trafficLight: "green",
+              grossKg: gross,
+              salesNotified: true,
+            },
+            "ANPR выезд: А123ВС 116. Брутто 34 110 кг, нетто " + netT + " т. Наряд закрыт, продажи уведомлены",
+          );
+        }
+        render();
+      }
+
+      function render() {
+        const s = state;
+        const net =
+          s.tareKg != null && s.grossKg != null
+            ? ((s.grossKg - s.tareKg) / 1000).toFixed(2) + " т"
+            : "—";
+        const scaleText =
+          s.grossKg != null
+            ? s.grossKg.toLocaleString("ru-RU") + " кг брутто"
+            : s.tareKg != null
+              ? s.tareKg.toLocaleString("ru-RU") + " кг тара"
+              : "нет оси";
+        const steps = [
+          ["CRM_SEND", "1. Заказ из CRM", s.status === "idle"],
+          ["ANPR_IN", "2. Камера: въезд", s.status === "waiting"],
+          ["WEIGH_TARE", "3. Взвесить тару", s.status === "on_scales_in" && s.tareKg == null],
+          ["NOTIFY_DRIVER", "4. Пуш водителю", s.status === "on_scales_in" && s.tareKg != null && !s.driverNotified],
+          ["CONFIRM_LOAD", "5. Погрузка готова", s.status === "loading" && !s.loaderConfirmed],
+          ["ANPR_OUT", "6. Камера: выезд", s.status === "on_scales_out" && s.loaderConfirmed],
+        ];
+
+        let phone;
+        if (!s.driverNotified) {
+          phone = `<div class="phone-idle"><p>Нет новых заданий</p><small>Водитель остаётся в кабине. Пост придёт после взвешивания тары.</small></div>`;
+        } else if (s.status === "closed") {
+          phone = `<div class="phone-card done"><div class="muted">Рейс завершён</div><h2>Можно выезжать</h2><p>${ORDER.plate} · нетто ${net}</p></div>`;
+        } else {
+          phone = `<div class="phone-card">${
+            s.status === "loading" && !s.loaderConfirmed ? `<div class="toast">Новое задание</div>` : ""
+          }<div class="muted">Пост погрузки</div><div class="dock">${s.dock}</div><p class="frac">${ORDER.fraction}</p><p class="qty">${ORDER.quantityT} т</p><p class="hint">${
+            s.loaderConfirmed ? "Загружено. Вернитесь на весы." : "Не выходите из кабины. Следуйте на пост."
+          }</p></div>`;
+        }
+
+        const inQueue = s.driverNotified;
+        const loader = !inQueue
+          ? `<div class="empty">Очередь пуста. Ждём машину с весовой.</div>`
+          : `<article class="queue-card"><div class="plate-xl">${ORDER.plate}</div><ul><li><span>Фракция</span><b>${ORDER.fraction}</b></li><li><span>Загрузить</span><b>${ORDER.quantityT} т</b></li><li><span>Наряд</span><b>${ORDER.number}</b></li></ul>${
+              s.loaderConfirmed
+                ? `<div class="badge-ok">Загрузка отмечена · машина на выезд</div>`
+                : `<button type="button" class="confirm" data-act="CONFIRM_LOAD">Загружено</button>`
+            }</article>`;
+
+        const orderBlock =
+          s.status === "idle"
+            ? `<div class="empty">Нет активных нарядов. Ожидаем данные из CRM — не из мессенджера.</div>`
+            : `<div class="order-card"><div class="order-top"><div><div class="muted">Наряд</div><div class="huge">${ORDER.number}</div></div><span class="pill pill-${s.status}">${STATUS_LABEL[s.status]}</span></div>
+              <dl class="meta"><div><dt>Клиент</dt><dd>${ORDER.customer}</dd></div><div><dt>Госномер</dt><dd class="plate">${ORDER.plate}</dd></div><div><dt>Фракция</dt><dd>${ORDER.fraction}</dd></div><div><dt>План</dt><dd>${ORDER.quantityT} т</dd></div></dl>
+              <div class="weights"><div><span>Тара</span><b>${kg(s.tareKg)}</b></div><div><span>Брутто</span><b>${kg(s.grossKg)}</b></div><div><span>Нетто</span><b>${net}</b></div></div>
+              ${s.salesNotified ? `<div class="badge-ok">Отдел продаж уведомлён · наряд закрыт</div>` : ""}</div>`;
+
+        const log =
+          s.log.length === 0
+            ? `<p class="muted small">Пока пусто — начните с шага «Заказ из CRM».</p>`
+            : `<ul class="log">${s.log.map((e) => `<li><time>${e.time}</time><span>${e.text}</span></li>`).join("")}</ul>`;
+
+        document.getElementById("root").innerHTML = `
+          <div class="app">
+            <header class="presenter">
+              <div class="presenter-brand">
+                <div class="presenter-kicker">Живой прототип для заказчика</div>
+                <h1>Автоматизация карьера</h1>
+                <p class="presenter-sub">CRM → камера номера → весы → пост погрузки → закрытие наряда. Без мессенджера и бумаги.</p>
+              </div>
+              <div class="hardware">
+                <div class="hw-card"><span class="hw-label">Камера ANPR</span><strong>${s.plateRecognized ?? "— ожидание —"}</strong></div>
+                <div class="hw-card light-card"><span class="hw-label">Светофор</span><div class="traffic ${s.trafficLight}"><i class="lamp red"></i><i class="lamp green"></i></div><em>${s.trafficLight === "green" ? "проезд" : "стоп"}</em></div>
+                <div class="hw-card"><span class="hw-label">Весы</span><strong>${scaleText}</strong></div>
+                <div class="hw-card status-card"><span class="hw-label">Статус наряда</span><strong class="pill pill-${s.status}">${s.status === "idle" ? "—" : ORDER.number + " · " + STATUS_LABEL[s.status]}</strong></div>
+              </div>
+              <div class="step-row">
+                ${steps.map(([act, label, on]) => `<button type="button" class="step-btn" data-act="${act}" ${on ? "" : "disabled"}>${label}</button>`).join("")}
+                <button type="button" class="step-btn ghost" data-act="RESET">Сброс демо</button>
+              </div>
+            </header>
+            <main class="stage">
+              <section class="panel desk">
+                <header class="panel-head"><span>Весовая</span><small>оператор · без окна и бумаги</small></header>
+                ${orderBlock}
+                <h3 class="log-title">Журнал событий</h3>
+                ${log}
+              </section>
+              <section class="panel phone-wrap">
+                <header class="panel-head"><span>Водитель</span><small>мобильное приложение</small></header>
+                <div class="phone"><div class="notch"></div><div class="phone-screen"><div class="phone-bar"><b>Карьер</b><span>${ORDER.driver}</span></div>${phone}</div></div>
+              </section>
+              <section class="panel tablet">
+                <header class="panel-head"><span>Погрузчик</span><small>пост ${s.dock ?? "—"} · планшет</small></header>
+                ${loader}
+              </section>
+            </main>
+          </div>`;
+
+        document.querySelectorAll("[data-act]").forEach((btn) => {
+          btn.addEventListener("click", () => dispatch(btn.getAttribute("data-act")));
+        });
+      }
+
+      render();
+    </script>
+  </body>
+</html>
