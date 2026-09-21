@@ -1,4 +1,4 @@
-import { DEMO_ORDER } from "./model";
+import { DEMO_ORDER, formatTons, nettoKg } from "./model";
 import { useDemo } from "./demo";
 
 export function DriverPhone() {
@@ -9,7 +9,9 @@ export function DriverPhone() {
     body = (
       <div className="phone-idle">
         <p>Нет новых заданий</p>
-        <small>Водитель остаётся в кабине. Пост придёт после взвешивания тары.</small>
+        <small>
+          Водитель остаётся в кабине. Пост придёт после взвешивания тары.
+        </small>
       </div>
     );
   } else if (state.status === "closed") {
@@ -18,10 +20,7 @@ export function DriverPhone() {
         <div className="muted">Рейс завершён</div>
         <h2>Можно выезжать</h2>
         <p>
-          {DEMO_ORDER.plate} · нетто{" "}
-          {state.tareKg && state.grossKg
-            ? `${((state.grossKg - state.tareKg) / 1000).toFixed(2)} т`
-            : ""}
+          {DEMO_ORDER.plate} · нетто {formatTons(nettoKg(state))}
         </p>
       </div>
     );
@@ -29,7 +28,9 @@ export function DriverPhone() {
     body = (
       <div className="phone-card">
         {state.status === "loading" && !state.loaderConfirmed && (
-          <div className="toast">Новое задание</div>
+          <div className="toast" role="status">
+            Новое задание
+          </div>
         )}
         <div className="muted">Пост погрузки</div>
         <div className="dock">{state.dock}</div>
@@ -57,7 +58,9 @@ export function DriverPhone() {
             <b>Карьер</b>
             <span>{DEMO_ORDER.driver}</span>
           </div>
-          {body}
+          <div key={`${state.status}-${state.loaderConfirmed}`} className="phone-body">
+            {body}
+          </div>
         </div>
       </div>
     </section>

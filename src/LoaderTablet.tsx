@@ -1,21 +1,32 @@
 import { DEMO_ORDER } from "./model";
-import { useDemo } from "./demo";
+import { createStepAction, useDemo } from "./demo";
+import { IconCheck, IconLoader } from "./icons";
 
 export function LoaderTablet() {
   const { state, dispatch } = useDemo();
-  const inQueue = state.driverNotified && state.status !== "idle";
+  const showQueue =
+    state.status === "loading" || state.status === "on_scales_out";
 
   return (
     <section className="panel tablet">
       <header className="panel-head">
         <span>Погрузчик</span>
-        <small>пост {state.dock ?? "—"} · планшет</small>
+        <small>пост {showQueue ? state.dock : "—"} · планшет</small>
       </header>
 
-      {!inQueue || state.status === "waiting" || state.status === "on_scales_in" ? (
-        <div className="empty">Очередь пуста. Ждём машину с весовой.</div>
+      {!showQueue ? (
+        <div className="empty">
+          <IconLoader size={28} />
+          <span>Очередь пуста. Ждём машину с весовой.</span>
+        </div>
       ) : (
         <article className="queue-card">
+          <div className="queue-top">
+            <span className="queue-badge">
+              {state.loaderConfirmed ? "загружено" : "в очереди"}
+            </span>
+            <IconLoader size={22} />
+          </div>
           <div className="plate-xl">{DEMO_ORDER.plate}</div>
           <ul>
             <li>
@@ -32,12 +43,15 @@ export function LoaderTablet() {
             </li>
           </ul>
           {state.loaderConfirmed ? (
-            <div className="badge-ok">Загрузка отмечена · машина на выезд</div>
+            <div className="badge-ok" role="status">
+              <IconCheck size={16} />
+              Загрузка отмечена · машина на выезд
+            </div>
           ) : (
             <button
               type="button"
               className="confirm"
-              onClick={() => dispatch({ type: "CONFIRM_LOAD" })}
+              onClick={() => dispatch(createStepAction("CONFIRM_LOAD"))}
             >
               Загружено
             </button>

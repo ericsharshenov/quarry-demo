@@ -1,5 +1,13 @@
 import { createContext, useContext, type Dispatch } from "react";
-import type { TripState } from "./model";
+import {
+  DEMO_ORDER,
+  SCENARIO,
+  can,
+  formatKg,
+  type LogEntry,
+  type StepType,
+  type TripState,
+} from "./model";
 
 export const initialState: TripState = {
   status: "idle",
@@ -14,105 +22,101 @@ export const initialState: TripState = {
   log: [],
 };
 
+export type Action =
+  | { type: StepType; meta: { id: number; at: number } }
+  | { type: "RESET" };
+
 let logSeq = 1;
 
-function nowTime() {
-  return new Date().toLocaleTimeString("ru-RU", {
+function nowTime(at: number): string {
+  return new Date(at).toLocaleTimeString("ru-RU", {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
   });
 }
 
-function pushLog(state: TripState, text: string): TripState {
-  return {
-    ...state,
-    log: [{ id: logSeq++, time: nowTime(), text }, ...state.log].slice(0, 12),
+function pushLog(
+  state: TripState,
+  action: { type: StepType; meta: { id: number; at: number } },
+  text: string,
+): TripState {
+  const entry: LogEntry = {
+    id: action.meta.id,
+    at: action.meta.at,
+    kind: action.type,
+    time: nowTime(action.meta.at),
+    text,
   };
+  return { ...state, log: [entry, ...state.log].slice(0, 50) };
 }
 
-export type Action =
-  | { type: "CRM_SEND" }
-  | { type: "ANPR_IN" }
-  | { type: "WEIGH_TARE" }
-  | { type: "NOTIFY_DRIVER" }
-  | { type: "CONFIRM_LOAD" }
-  | { type: "ANPR_OUT" }
-  | { type: "RESET" };
+export function createStepAction(type: StepType): Action {
+  return { type, meta: { id: logSeq++, at: Date.now() } };
+}
+
+export function resetAction(): Action {
+  return { type: "RESET" };
+}
 
 export function reducer(state: TripState, action: Action): TripState {
+  if (action.type === "RESET") {
+    return { ...initialState, log: [] };
+  }
+  if (!can(state, action.type)) return state;
+
   switch (action.type) {
-    case "RESET":
-      return { ...initialState, log: [] };
-    case "CRM_SEND": {
-      if (state.status !== "idle") return state;
+    case "CRM_SEND":
       return pushLog(
         { ...state, status: "waiting" },
-        "CRM: отдел продаж отправил наряд Н-10482 (5–20 мм, 20 т, А123ВС 116)",
+        action,
+        `CRM: отдел продаж отправил наряд ${DEMO_ORDER.number} (${DEMO_ORDER.fraction}, ${DEMO_ORDER.quantityT} т, ${DEMO_ORDER.plate})`,
       );
-    }
-    case "ANPR_IN": {
-      if (state.status !== "waiting") return state;
+    case "ANPR_IN":
       return pushLog(
         {
           ...state,
           status: "on_scales_in",
-          plateRecognized: "А123ВС 116",
+          plateRecognized: DEMO_ORDER.plate,
           trafficLight: "green",
         },
-        "ANPR: номер А123ВС 116 распознан, наряд найден, светофор зелёный",
+        action,
+        `ANPR: номер ${DEMO_ORDER.plate} распознан, наряд найден, светофор зелёный`,
       );
-    }
-    case "WEIGH_TARE": {
-      if (state.status !== "on_scales_in") return state;
-      const tare = 14280;
+    case "WEIGH_TARE":
       return pushLog(
-        {
-          ...state,
-          tareKg: tare,
-          trafficLight: "red",
-        },
-        `Весы: тара ${tare.toLocaleString("ru-RU")} кг. Водитель остаётся в кабине`,
+        { ...state, tareKg: SCENARIO.tareKg, trafficLight: "red" },
+        action,
+        `Весы: тара ${formatKg(SCENARIO.tareKg)}. Водитель остаётся в кабине`,
       );
-    }
-    case "NOTIFY_DRIVER": {
-      if (state.status !== "on_scales_in" || state.tareKg == null) return state;
+    case "NOTIFY_DRIVER":
       return pushLog(
-        {
-          ...state,
-          status: "loading",
-          dock: 2,
-          driverNotified: true,
-        },
-        "Водителю: пост погрузки 2. Погрузчику: очередь А123ВС 116, 20 т фракции 5–20",
+        { ...state, status: "loading", dock: 2, driverNotified: true },
+        action,
+        `Водителю: пост погрузки 2. Погрузчику: очередь ${DEMO_ORDER.plate}, ${DEMO_ORDER.quantityT} т фракции ${DEMO_ORDER.fraction}`,
       );
-    }
-    case "CONFIRM_LOAD": {
-      if (state.status !== "loading" || state.loaderConfirmed) return state;
+    case "CONFIRM_LOAD":
       return pushLog(
         { ...state, loaderConfirmed: true, status: "on_scales_out" },
+        action,
         "Погрузчик: загрузка подтверждена. Машина возвращается на весы",
       );
-    }
     case "ANPR_OUT": {
-      if (state.status !== "on_scales_out" || !state.loaderConfirmed) return state;
-      const gross = 34110;
-      const tare = state.tareKg ?? 0;
-      const netT = ((gross - tare) / 1000).toFixed(2);
+      const gross = SCENARIO.grossKg;
+      const net = gross - (state.tareKg ?? 0);
       return pushLog(
         {
           ...state,
           status: "closed",
-          plateRecognized: "А123ВС 116",
+          plateRecognized: DEMO_ORDER.plate,
           trafficLight: "green",
           grossKg: gross,
           salesNotified: true,
         },
-        `ANPR выезд: А123ВС 116. Брутто ${gross.toLocaleString("ru-RU")} кг, нетто ${netT} т. Наряд закрыт, продажи уведомлены`,
+        action,
+        `ANPR выезд: ${DEMO_ORDER.plate}. Брутто ${formatKg(gross)}, нетто ${formatKg(net)}. Наряд закрыт, продажи уведомлены`,
       );
     }
-    default:
-      return state;
   }
 }
 

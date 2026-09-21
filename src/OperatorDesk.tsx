@@ -1,16 +1,19 @@
-import { DEMO_ORDER, STATUS_LABEL } from "./model";
+import {
+  DEMO_ORDER,
+  STATUS_LABEL,
+  formatKg,
+  formatTons,
+} from "./model";
 import { useDemo } from "./demo";
-
-function kg(n: number | null) {
-  return n == null ? "—" : `${n.toLocaleString("ru-RU")} кг`;
-}
+import { useCountUp } from "./hooks";
+import { TripSummary } from "./TripSummary";
 
 export function OperatorDesk() {
   const { state } = useDemo();
-  const net =
-    state.tareKg != null && state.grossKg != null
-      ? `${((state.grossKg - state.tareKg) / 1000).toFixed(2)} т`
-      : "—";
+  const tare = useCountUp(state.tareKg);
+  const gross = useCountUp(state.grossKg);
+  const net = tare != null && gross != null ? gross - tare : null;
+  const weighing = state.status === "on_scales_in" || state.status === "on_scales_out";
 
   return (
     <section className="panel desk">
@@ -52,23 +55,26 @@ export function OperatorDesk() {
               <dd>{DEMO_ORDER.quantityT} т</dd>
             </div>
           </dl>
-          <div className="weights">
+          <div className={`weights ${weighing ? "weighing" : ""}`}>
             <div>
               <span>Тара</span>
-              <b>{kg(state.tareKg)}</b>
+              <b>{formatKg(tare)}</b>
             </div>
             <div>
               <span>Брутто</span>
-              <b>{kg(state.grossKg)}</b>
+              <b>{formatKg(gross)}</b>
             </div>
             <div>
               <span>Нетто</span>
-              <b>{net}</b>
+              <b>{formatTons(net)}</b>
             </div>
           </div>
           {state.salesNotified && (
-            <div className="badge-ok">Отдел продаж уведомлён · наряд закрыт</div>
+            <div className="badge-ok" role="status">
+              Отдел продаж уведомлён · наряд закрыт
+            </div>
           )}
+          {state.status === "closed" && <TripSummary />}
         </div>
       )}
 
@@ -76,14 +82,19 @@ export function OperatorDesk() {
       {state.log.length === 0 ? (
         <p className="muted small">Пока пусто — начните с шага «Заказ из CRM».</p>
       ) : (
-        <ul className="log">
-          {state.log.map((e) => (
-            <li key={e.id}>
-              <time>{e.time}</time>
-              <span>{e.text}</span>
-            </li>
-          ))}
-        </ul>
+        <>
+          <p className="sr-only" role="status">
+            {state.log[0]?.text}
+          </p>
+          <ul className="log">
+            {state.log.map((entry) => (
+              <li key={entry.id}>
+                <time>{entry.time}</time>
+                <span>{entry.text}</span>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </section>
   );
